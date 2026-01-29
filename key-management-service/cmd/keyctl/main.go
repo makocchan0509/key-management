@@ -85,7 +85,11 @@ func createCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("API request failed: %w", err)
 			}
-			defer resp.Body.Close()
+			defer func() {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: failed to close response body: %v\n", closeErr)
+				}
+			}()
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
@@ -109,7 +113,9 @@ func createCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&tenantID, "tenant", "", "Tenant ID (required)")
-	cmd.MarkFlagRequired("tenant")
+	if err := cmd.MarkFlagRequired("tenant"); err != nil {
+		panic(fmt.Sprintf("failed to mark flag as required: %v", err))
+	}
 	return cmd
 }
 
@@ -139,7 +145,11 @@ func getCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("API request failed: %w", err)
 			}
-			defer resp.Body.Close()
+			defer func() {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: failed to close response body: %v\n", closeErr)
+				}
+			}()
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
@@ -164,7 +174,9 @@ func getCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&tenantID, "tenant", "", "Tenant ID (required)")
 	cmd.Flags().UintVar(&generation, "generation", 0, "Key generation (optional, defaults to current)")
-	cmd.MarkFlagRequired("tenant")
+	if err := cmd.MarkFlagRequired("tenant"); err != nil {
+		panic(fmt.Sprintf("failed to mark flag as required: %v", err))
+	}
 	return cmd
 }
 
@@ -187,7 +199,11 @@ func rotateCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("API request failed: %w", err)
 			}
-			defer resp.Body.Close()
+			defer func() {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: failed to close response body: %v\n", closeErr)
+				}
+			}()
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
@@ -211,7 +227,9 @@ func rotateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&tenantID, "tenant", "", "Tenant ID (required)")
-	cmd.MarkFlagRequired("tenant")
+	if err := cmd.MarkFlagRequired("tenant"); err != nil {
+		panic(fmt.Sprintf("failed to mark flag as required: %v", err))
+	}
 	return cmd
 }
 
@@ -234,7 +252,11 @@ func listCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("API request failed: %w", err)
 			}
-			defer resp.Body.Close()
+			defer func() {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: failed to close response body: %v\n", closeErr)
+				}
+			}()
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
@@ -268,7 +290,9 @@ func listCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&tenantID, "tenant", "", "Tenant ID (required)")
-	cmd.MarkFlagRequired("tenant")
+	if err := cmd.MarkFlagRequired("tenant"); err != nil {
+		panic(fmt.Sprintf("failed to mark flag as required: %v", err))
+	}
 	return cmd
 }
 
@@ -300,7 +324,11 @@ func disableCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("API request failed: %w", err)
 			}
-			defer resp.Body.Close()
+			defer func() {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: failed to close response body: %v\n", closeErr)
+				}
+			}()
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
@@ -321,8 +349,12 @@ func disableCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&tenantID, "tenant", "", "Tenant ID (required)")
 	cmd.Flags().UintVar(&generation, "generation", 0, "Key generation (required)")
-	cmd.MarkFlagRequired("tenant")
-	cmd.MarkFlagRequired("generation")
+	if err := cmd.MarkFlagRequired("tenant"); err != nil {
+		panic(fmt.Sprintf("failed to mark flag as required: %v", err))
+	}
+	if err := cmd.MarkFlagRequired("generation"); err != nil {
+		panic(fmt.Sprintf("failed to mark flag as required: %v", err))
+	}
 	return cmd
 }
 
@@ -332,7 +364,7 @@ func handleErrorResponse(statusCode int, body []byte) error {
 		Message string `json:"message"`
 	}
 	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&errResp); err == nil && errResp.Message != "" {
-		return fmt.Errorf("Error: %s", errResp.Message)
+		return fmt.Errorf("error: %s", errResp.Message)
 	}
-	return fmt.Errorf("Error: server returned status %d", statusCode)
+	return fmt.Errorf("error: server returned status %d", statusCode)
 }

@@ -66,7 +66,6 @@ func (m *mockKeyRepository) UpdateStatus(ctx context.Context, id string, status 
 
 // mockKMSClient はテスト用のモックKMSクライアント。
 type mockKMSClient struct {
-	encryptResult []byte
 	encryptErr    error
 	decryptResult []byte
 	decryptErr    error
@@ -112,7 +111,9 @@ func TestCreateKey_Success(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(rec.Body).Decode(&resp)
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if resp["tenant_id"] != "tenant-001" {
 		t.Errorf("want tenant_id tenant-001, got %v", resp["tenant_id"])
 	}

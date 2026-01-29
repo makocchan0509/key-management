@@ -116,8 +116,12 @@ var migrateStatusCmd = &cobra.Command{
 
 		// テーブル形式で出力
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "VERSION\tNAME\tSTATUS\tAPPLIED AT")
-		fmt.Fprintln(w, "-------\t----\t------\t----------")
+		if _, err := fmt.Fprintln(w, "VERSION\tNAME\tSTATUS\tAPPLIED AT"); err != nil {
+			return fmt.Errorf("writing header: %w", err)
+		}
+		if _, err := fmt.Fprintln(w, "-------\t----\t------\t----------"); err != nil {
+			return fmt.Errorf("writing separator: %w", err)
+		}
 
 		for _, migration := range migrations {
 			appliedAt := "-"
@@ -130,7 +134,9 @@ var migrateStatusCmd = &cobra.Command{
 				status = "applied"
 			}
 
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", migration.Version, migration.Name, status, appliedAt)
+			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", migration.Version, migration.Name, status, appliedAt); err != nil {
+				return fmt.Errorf("writing migration status: %w", err)
+			}
 		}
 
 		if err := w.Flush(); err != nil {

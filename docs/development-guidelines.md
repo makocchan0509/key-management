@@ -171,6 +171,7 @@ type KeyService struct {
 **原則**:
 - 予期されるエラー: ドメインエラーとして定義し、適切に処理
 - 予期しないエラー: コンテキストを付与して上位に伝播
+- **全てのエラー戻り値をチェックする（golangci-lintのerrcheckで検出）**
 - エラーを無視しない
 
 **カスタムエラーの定義**:
@@ -220,6 +221,46 @@ func (s *KeyService) GetCurrentKey(ctx context.Context, tenantID string) *domain
     plainKey, _ := s.kmsClient.Decrypt(ctx, key.EncryptedKey)  // エラー無視
     return &domain.Key{Key: plainKey}
 }
+```
+
+**defer文でのClose()のエラーハンドリング**:
+```go
+// ✅ 良い例: defer文でもエラーをチェック
+resp, err := httpClient.Get(url)
+if err != nil {
+    return fmt.Errorf("API request failed: %w", err)
+}
+defer func() {
+    if closeErr := resp.Body.Close(); closeErr != nil {
+        fmt.Fprintf(os.Stderr, "warning: failed to close response body: %v\n", closeErr)
+    }
+}()
+
+// ❌ 悪い例: Close()のエラーを無視
+defer resp.Body.Close() // errcheckで検出される
+```
+
+**I/O関数のエラーハンドリング**:
+```go
+// ✅ 良い例: fmt.Fprintf等のエラーもチェック
+if _, err := fmt.Fprintf(w, "%s\t%s\n", key, value); err != nil {
+    return fmt.Errorf("writing output: %w", err)
+}
+
+// ❌ 悪い例: I/Oエラーを無視
+fmt.Fprintf(w, "%s\t%s\n", key, value) // errcheckで検出される
+```
+
+**初期化時のエラーハンドリング**:
+```go
+// ✅ 良い例: 初期化の失敗は早期にpanicさせる（プログラムを起動させない）
+cmd.Flags().StringVar(&tenantID, "tenant", "", "Tenant ID (required)")
+if err := cmd.MarkFlagRequired("tenant"); err != nil {
+    panic(fmt.Sprintf("failed to mark flag as required: %v", err))
+}
+
+// ❌ 悪い例: 初期化のエラーを無視
+cmd.MarkFlagRequired("tenant") // errcheckで検出される
 ```
 
 **エラーメッセージ**:
@@ -704,13 +745,16 @@ jobs:
         run: goimports -l . | grep . && exit 1 || true
       - name: Vet
         run: go vet ./...
-      - name: Lint
+      - name: Lint (golangci-lint)
         run: golangci-lint run
+        # エラーがあればCIを失敗させる（PRマージをブロック）
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
       - name: Build
         run: go build ./cmd/...
 ```
+
+**重要**: golangci-lintでエラーが出た場合、CIは失敗しPRをマージできません。コミット前に必ず `make pre-commit` または `golangci-lint run` を実行してください。
 
 ### Makefile
 
@@ -731,7 +775,20 @@ test:
 build:
 	go build ./cmd/...
 
+# コミット前に必ず実行
+pre-commit: fmt lint test
+
 ci: fmt lint test build
+```
+
+**推奨ワークフロー**:
+```bash
+# コード編集後、コミット前に必ず実行
+make pre-commit
+
+# 問題がなければコミット
+git add .
+git commit -m "feat: 新機能追加"
 ```
 
 ---
@@ -786,11 +843,13 @@ make test
 ### コーディング規約
 - [ ] 命名規則に従っている（頭字語、レシーバ名など）
 - [ ] 関数が単一の責務を持っている
+- [ ] **全てのエラー戻り値をチェックしている（defer文のClose()やI/O関数も含む）**
 - [ ] エラーハンドリングが実装されている（エラーを無視していない）
 - [ ] エラーメッセージが小文字で始まっている
 - [ ] マジックナンバーがない
 - [ ] セキュリティ（入力検証、機密情報管理）が適切
 - [ ] 鍵の平文がログに出力されていない
+- [ ] **golangci-lint run でエラーがないことを確認済み**
 
 ### 開発プロセス
 - [ ] ブランチ戦略に従っている

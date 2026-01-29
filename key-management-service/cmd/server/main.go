@@ -54,7 +54,11 @@ func main() {
 		slog.Error("failed to init KMS client", "error", err)
 		os.Exit(1)
 	}
-	defer kmsClient.Close()
+	defer func() {
+		if closeErr := kmsClient.Close(); closeErr != nil {
+			slog.Error("failed to close KMS client", "error", closeErr)
+		}
+	}()
 
 	// DI
 	repo := repository.NewKeyRepository(db)
