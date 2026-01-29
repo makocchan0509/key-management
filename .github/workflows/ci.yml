@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  workflow_dispatch: 
+  push:
+    branches: ['feature/**', 'fix/**']
+    paths:
+      - 'key-management-service/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'key-management-service/**'
+      - '.github/workflows/ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: key-management-service
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'key-management-service/go.mod'
+          cache: true
+          cache-dependency-path: 'key-management-service/go.sum'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Format check (gofmt)
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Go code is not formatted. Please run 'gofmt -w .'"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: Format check (goimports)
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          if [ -n "$(goimports -l .)" ]; then
+            echo "Go code has incorrect imports. Please run 'goimports -w .'"
+            goimports -d .
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: key-management-service
+          args: --timeout=5m
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./key-management-service/coverage.out
+          flags: unittests
+          name: codecov-umbrella
+        continue-on-error: true
+
+      - name: Build
+        run: go build -v ./cmd/...

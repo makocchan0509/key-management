@@ -1,0 +1,39 @@
+# バイナリ
+/bin/
+*.exe
+
+# 依存
+/vendor/
+
+# IDE
+.idea/
+.vscode/
+
+# 環境変数
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# テストカバレッジ
+coverage.out
+coverage.html
+
+# ログ
+*.log
+
+# ビルド成果物
+/dist/
+
+# 一時ファイル
+tmp/
+*.tmp
+
+# terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+terraform.tfvars.example

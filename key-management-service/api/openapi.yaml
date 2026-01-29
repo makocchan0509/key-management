@@ -1,0 +1,236 @@
+openapi: 3.0.3
+info:
+  title: Key Management Service API
+  description: 暗号鍵管理マイクロサービスのREST API
+  version: 1.0.0
+
+servers:
+  - url: https://key-management-service.run.app/v1
+    description: 本番環境
+
+paths:
+  /tenants/{tenant_id}/keys:
+    post:
+      summary: 鍵の生成
+      description: 指定したテナントに対して新しい暗号鍵（世代1）を生成する
+      operationId: createKey
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '201':
+          description: 鍵の生成に成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyMetadata'
+        '409':
+          description: 既に鍵が存在する
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      summary: 鍵一覧の取得
+      description: 指定したテナントの全世代の鍵メタデータを取得する
+      operationId: listKeys
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyList'
+
+  /tenants/{tenant_id}/keys/current:
+    get:
+      summary: 現在有効な鍵の取得
+      description: 指定したテナントの最新世代（有効な）鍵を取得する
+      operationId: getCurrentKey
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Key'
+        '404':
+          description: 鍵が存在しない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /tenants/{tenant_id}/keys/{generation}:
+    get:
+      summary: 特定世代の鍵の取得
+      description: 指定したテナント・世代の鍵を取得する
+      operationId: getKeyByGeneration
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Generation'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Key'
+        '404':
+          description: 鍵が存在しない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 鍵が無効化されている
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: 鍵の無効化（論理削除）
+      description: 指定したテナント・世代の鍵を無効化する
+      operationId: disableKey
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Generation'
+      responses:
+        '202':
+          description: 無効化を受け付けた
+        '404':
+          description: 鍵が存在しない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 既に無効化されている
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /tenants/{tenant_id}/keys/rotate:
+    post:
+      summary: 鍵のローテーション
+      description: 指定したテナントに対して新しい世代の鍵を生成する
+      operationId: rotateKey
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '201':
+          description: 新しい世代の鍵を生成した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyMetadata'
+        '404':
+          description: テナントの鍵が存在しない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  parameters:
+    TenantId:
+      name: tenant_id
+      in: path
+      required: true
+      description: テナントID
+      schema:
+        type: string
+        pattern: '^[a-zA-Z0-9_-]+$'
+        minLength: 1
+        maxLength: 64
+        example: "tenant-001"
+
+    Generation:
+      name: generation
+      in: path
+      required: true
+      description: 鍵の世代番号
+      schema:
+        type: integer
+        minimum: 1
+        example: 1
+
+  schemas:
+    Key:
+      type: object
+      required:
+        - tenant_id
+        - generation
+        - key
+      properties:
+        tenant_id:
+          type: string
+          description: テナントID
+          example: "tenant-001"
+        generation:
+          type: integer
+          description: 鍵の世代番号
+          example: 3
+        key:
+          type: string
+          format: byte
+          description: Base64エンコードされた鍵データ（AES-256、32バイト）
+          example: "dGhpcyBpcyBhIHNhbXBsZSBrZXkgZGF0YSBmb3IgZGVtbw=="
+
+    KeyMetadata:
+      type: object
+      required:
+        - tenant_id
+        - generation
+        - status
+        - created_at
+      properties:
+        tenant_id:
+          type: string
+          description: テナントID
+          example: "tenant-001"
+        generation:
+          type: integer
+          description: 鍵の世代番号
+          example: 1
+        status:
+          type: string
+          enum: [active, disabled]
+          description: 鍵のステータス
+          example: "active"
+        created_at:
+          type: string
+          format: date-time
+          description: 作成日時（RFC3339形式）
+          example: "2025-01-28T10:30:00Z"
+
+    KeyList:
+      type: object
+      required:
+        - keys
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/KeyMetadata'
+
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: エラーコード
+          example: "KEY_NOT_FOUND"
+        message:
+          type: string
+          description: エラーメッセージ
+          example: "指定されたテナントの鍵が見つかりません"
