@@ -1,6 +1,6 @@
 module key-management-service
 
-go 1.22.12
+go 1.25.0
 
 require (
 	cloud.google.com/go/kms v1.20.5

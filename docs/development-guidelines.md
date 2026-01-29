@@ -799,7 +799,7 @@ git commit -m "feat: 新機能追加"
 
 | ツール | バージョン | インストール方法 |
 |---|---|---|
-| Go | 1.23.x | https://go.dev/dl/ |
+| Go | 1.25.x | https://go.dev/dl/ |
 | golangci-lint | v1.61.x | `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest` |
 | goimports | latest | `go install golang.org/x/tools/cmd/goimports@latest` |
 | Docker | 27.x | https://www.docker.com/products/docker-desktop |

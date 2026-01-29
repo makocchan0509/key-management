@@ -1,6 +1,8 @@
 # バイナリ
 /bin/
 *.exe
+keyctl
+server
 
 # 依存
 /vendor/
