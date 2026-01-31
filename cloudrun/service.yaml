@@ -10,24 +10,38 @@ spec:
       annotations:
         autoscaling.knative.dev/minScale: "0"
         autoscaling.knative.dev/maxScale: "10"
+        run.googleapis.com/container-dependencies: '{"key-management-service":["cloud-sql-proxy"]}'
     spec:
+      serviceAccountName: key-management-service@genai-agent-engine.iam.gserviceaccount.com
       containers:
-      - image: gcr.io/YOUR_PROJECT_ID/key-management-service:latest
+      - image: asia-northeast1-docker.pkg.dev/genai-agent-engine/key-management-service/key-management-service:latest
+        name: key-management-service
         ports:
         - containerPort: 8080
         env:
-        - name: PORT
-          value: "8080"
         - name: DATABASE_URL
-          # Secret Managerを使用する場合は valueFrom を使用することを推奨します
-          value: "postgres://user:password@host:5432/dbname?sslmode=disable"
+          value: "key-manager:P@ssw0rd!@tcp(127.0.0.1:3306)/key_management"
         - name: KMS_KEY_NAME
-          value: "projects/YOUR_PROJECT_ID/locations/global/keyRings/YOUR_KEYRING/cryptoKeys/YOUR_KEY"
+          value: "projects/genai-agent-engine/locations/asia-northeast1/keyRings/key-management/cryptoKeys/kek/cryptoKeyVersions/1"
         - name: GOOGLE_CLOUD_PROJECT
-          value: "YOUR_PROJECT_ID"
+          value: "genai-agent-engine"
         - name: LOG_LEVEL
           value: "INFO"
+        
         resources:
           limits:
             cpu: 1000m
             memory: 512Mi
+      - image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.20.0
+        name: cloud-sql-proxy
+        args:
+        - "--address=0.0.0.0"
+        - "--port=3306"
+        - "genai-agent-engine:asia-northeast1:key-management"
+        startupProbe:
+         tcpSocket:
+           port: 3306
+        resources:
+          limits:
+            memory: 256Mi
+            cpu: 1000m

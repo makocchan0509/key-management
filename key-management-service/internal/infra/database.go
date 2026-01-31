@@ -2,6 +2,7 @@
 package infra
 
 import (
+	"log/slog"
 	"time"
 
 	"gorm.io/driver/mysql"
@@ -15,11 +16,19 @@ func NewDB(dsn string) (*gorm.DB, error) {
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
+		slog.Error("failed to open database connection",
+			"operation", "db_init",
+			"error", err,
+		)
 		return nil, err
 	}
 
 	sqlDB, err := db.DB()
 	if err != nil {
+		slog.Error("failed to get underlying sql.DB",
+			"operation", "db_init",
+			"error", err,
+		)
 		return nil, err
 	}
 

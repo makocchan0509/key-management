@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -94,6 +95,10 @@ func (s *MigrationService) ApplyMigrations(ctx context.Context) (int, error) {
 	// 全マイグレーションファイルをスキャン
 	allMigrations, err := s.scanMigrationFiles(ctx)
 	if err != nil {
+		slog.Error("failed to scan migration files",
+			"operation", "apply_migrations",
+			"error", err,
+		)
 		return 0, err
 	}
 
@@ -102,6 +107,11 @@ func (s *MigrationService) ApplyMigrations(ctx context.Context) (int, error) {
 	for _, migration := range allMigrations {
 		applied, err := s.repo.IsMigrationApplied(ctx, migration.Version)
 		if err != nil {
+			slog.ErrorContext(ctx, "failed to check migration status",
+				"operation", "apply_migrations",
+				"version", migration.Version,
+				"error", err,
+			)
 			return 0, fmt.Errorf("failed to check migration status: %w", err)
 		}
 		if !applied {
@@ -117,6 +127,11 @@ func (s *MigrationService) ApplyMigrations(ctx context.Context) (int, error) {
 	appliedCount := 0
 	for _, migration := range pendingMigrations {
 		if err := s.applyMigration(ctx, migration); err != nil {
+			slog.ErrorContext(ctx, "failed to apply migration",
+				"operation", "apply_migrations",
+				"version", migration.Version,
+				"error", err,
+			)
 			return appliedCount, fmt.Errorf("%w: version %s: %v", domain.ErrMigrationFailed, migration.Version, err)
 		}
 		appliedCount++
@@ -130,6 +145,12 @@ func (s *MigrationService) applyMigration(ctx context.Context, migration *domain
 	// SQLファイルを読み込み
 	sqlBytes, err := os.ReadFile(migration.FilePath)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to read migration file",
+			"operation", "apply_migration",
+			"version", migration.Version,
+			"file_path", migration.FilePath,
+			"error", err,
+		)
 		return fmt.Errorf("failed to read migration file: %w", err)
 	}
 
@@ -137,6 +158,11 @@ func (s *MigrationService) applyMigration(ctx context.Context, migration *domain
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// SQL実行
 		if err := tx.Exec(string(sqlBytes)).Error; err != nil {
+			slog.ErrorContext(ctx, "failed to execute migration SQL",
+				"operation", "apply_migration",
+				"version", migration.Version,
+				"error", err,
+			)
 			return fmt.Errorf("failed to execute migration SQL: %w", err)
 		}
 
@@ -147,6 +173,11 @@ func (s *MigrationService) applyMigration(ctx context.Context, migration *domain
 			Version: migration.Version,
 		}
 		if err := tx.Table("schema_migrations").Create(&model).Error; err != nil {
+			slog.ErrorContext(ctx, "failed to record migration in schema_migrations",
+				"operation", "apply_migration",
+				"version", migration.Version,
+				"error", err,
+			)
 			return fmt.Errorf("failed to record migration: %w", err)
 		}
 
@@ -165,6 +196,10 @@ func (s *MigrationService) GetMigrationStatus(ctx context.Context) ([]*domain.Mi
 	// 適用済みマイグレーション履歴を取得
 	appliedMigrations, err := s.repo.FindAllApplied(ctx)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to fetch applied migrations",
+			"operation", "get_migration_status",
+			"error", err,
+		)
 		return nil, fmt.Errorf("failed to fetch applied migrations: %w", err)
 	}
 

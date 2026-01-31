@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"key-management-service/config"
 	"key-management-service/internal/handler"
 	"key-management-service/internal/infra"
@@ -19,6 +21,10 @@ import (
 
 func main() {
 	ctx := context.Background()
+
+	// .envファイルを読み込む（存在しない場合は無視）
+	// 既存の環境変数は上書きしない
+	_ = godotenv.Load()
 
 	// 設定読み込み
 	cfg := config.Load()

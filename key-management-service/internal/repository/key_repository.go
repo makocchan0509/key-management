@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,6 +68,11 @@ func (r *KeyRepository) ExistsByTenantID(ctx context.Context, tenantID string) (
 		Where("tenant_id = ?", tenantID).
 		Count(&count).Error
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to count keys by tenant_id",
+			"operation", "exists_by_tenant_id",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return false, err
 	}
 	return count > 0, nil
@@ -82,6 +88,12 @@ func (r *KeyRepository) Create(ctx context.Context, key *domain.EncryptionKey) e
 		Status:       string(key.Status),
 	}
 	if err := r.db.WithContext(ctx).Create(model).Error; err != nil {
+		slog.ErrorContext(ctx, "failed to create key",
+			"operation", "create",
+			"tenant_id", key.TenantID,
+			"generation", key.Generation,
+			"error", err,
+		)
 		return err
 	}
 	// gormで設定された値をドメインエンティティに反映
@@ -101,6 +113,12 @@ func (r *KeyRepository) FindByTenantIDAndGeneration(ctx context.Context, tenantI
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
+		slog.ErrorContext(ctx, "failed to find key",
+			"operation", "find_by_tenant_id_and_generation",
+			"tenant_id", tenantID,
+			"generation", generation,
+			"error", err,
+		)
 		return nil, err
 	}
 	return model.toDomain(), nil
@@ -117,6 +135,11 @@ func (r *KeyRepository) FindLatestActiveByTenantID(ctx context.Context, tenantID
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
+		slog.ErrorContext(ctx, "failed to find latest active key",
+			"operation", "find_latest_active_by_tenant_id",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, err
 	}
 	return model.toDomain(), nil
@@ -130,6 +153,11 @@ func (r *KeyRepository) FindAllByTenantID(ctx context.Context, tenantID string) 
 		Order("generation ASC").
 		Find(&models).Error
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to find all keys by tenant_id",
+			"operation", "find_all_by_tenant_id",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, err
 	}
 
@@ -149,6 +177,11 @@ func (r *KeyRepository) GetMaxGeneration(ctx context.Context, tenantID string) (
 		Select("MAX(generation)").
 		Scan(&maxGen).Error
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to get max generation",
+			"operation", "get_max_generation",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return 0, err
 	}
 	if maxGen == nil {
@@ -159,8 +192,18 @@ func (r *KeyRepository) GetMaxGeneration(ctx context.Context, tenantID string) (
 
 // UpdateStatus は指定されたIDの鍵のステータスを更新する。
 func (r *KeyRepository) UpdateStatus(ctx context.Context, id string, status domain.KeyStatus) error {
-	return r.db.WithContext(ctx).
+	err := r.db.WithContext(ctx).
 		Model(&EncryptionKeyModel{}).
 		Where("id = ?", id).
 		Update("status", string(status)).Error
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to update status",
+			"operation", "update_status",
+			"id", id,
+			"status", status,
+			"error", err,
+		)
+		return err
+	}
+	return nil
 }

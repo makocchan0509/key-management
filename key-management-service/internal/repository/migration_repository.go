@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"key-management-service/internal/domain"
@@ -34,6 +35,10 @@ func NewMigrationRepository(db *gorm.DB) *MigrationRepository {
 func (r *MigrationRepository) FindAllApplied(ctx context.Context) ([]*domain.Migration, error) {
 	var models []SchemaMigrationModel
 	if err := r.db.WithContext(ctx).Order("version ASC").Find(&models).Error; err != nil {
+		slog.ErrorContext(ctx, "failed to find all applied migrations",
+			"operation", "find_all_applied",
+			"error", err,
+		)
 		return nil, err
 	}
 
@@ -54,13 +59,27 @@ func (r *MigrationRepository) RecordMigration(ctx context.Context, version strin
 	model := &SchemaMigrationModel{
 		Version: version,
 	}
-	return r.db.WithContext(ctx).Create(model).Error
+	err := r.db.WithContext(ctx).Create(model).Error
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to record migration",
+			"operation", "record_migration",
+			"version", version,
+			"error", err,
+		)
+		return err
+	}
+	return nil
 }
 
 // IsMigrationApplied はマイグレーションが適用済みか確認する。
 func (r *MigrationRepository) IsMigrationApplied(ctx context.Context, version string) (bool, error) {
 	var count int64
 	if err := r.db.WithContext(ctx).Model(&SchemaMigrationModel{}).Where("version = ?", version).Count(&count).Error; err != nil {
+		slog.ErrorContext(ctx, "failed to check if migration is applied",
+			"operation", "is_migration_applied",
+			"version", version,
+			"error", err,
+		)
 		return false, err
 	}
 	return count > 0, nil

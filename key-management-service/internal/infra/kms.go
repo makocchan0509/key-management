@@ -3,6 +3,7 @@ package infra
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	kms "cloud.google.com/go/kms/apiv1"
@@ -41,6 +42,11 @@ func (c *KMSClient) Encrypt(ctx context.Context, plaintext []byte) ([]byte, erro
 	}
 	resp, err := c.client.Encrypt(ctx, req)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to encrypt with KMS",
+			"operation", "kms_encrypt",
+			"key_name", c.keyName,
+			"error", err,
+		)
 		return nil, fmt.Errorf("encrypting: %w", err)
 	}
 	return resp.Ciphertext, nil
@@ -54,6 +60,11 @@ func (c *KMSClient) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, err
 	}
 	resp, err := c.client.Decrypt(ctx, req)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to decrypt with KMS",
+			"operation", "kms_decrypt",
+			"key_name", c.keyName,
+			"error", err,
+		)
 		return nil, fmt.Errorf("decrypting: %w", err)
 	}
 	return resp.Plaintext, nil

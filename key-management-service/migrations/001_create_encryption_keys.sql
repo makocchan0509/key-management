@@ -1,5 +1,5 @@
 -- 暗号鍵テーブルの作成
-CREATE TABLE encryption_keys (
+CREATE TABLE IF NOT EXISTS encryption_keys (
     id CHAR(36) NOT NULL,
     tenant_id VARCHAR(64) NOT NULL,
     generation INT UNSIGNED NOT NULL,

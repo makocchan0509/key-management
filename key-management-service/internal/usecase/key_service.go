@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"log/slog"
 
 	"key-management-service/internal/domain"
 )
@@ -57,9 +58,18 @@ func (s *KeyService) CreateKey(ctx context.Context, tenantID string) (*domain.Ke
 	// 既存チェック
 	exists, err := s.repo.ExistsByTenantID(ctx, tenantID)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to check existing key",
+			"operation", "create_key",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, fmt.Errorf("checking existing key: %w", err)
 	}
 	if exists {
+		slog.WarnContext(ctx, "key already exists",
+			"operation", "create_key",
+			"tenant_id", tenantID,
+		)
 		return nil, domain.ErrKeyAlreadyExists
 	}
 
@@ -72,6 +82,11 @@ func (s *KeyService) CreateKey(ctx context.Context, tenantID string) (*domain.Ke
 	// KMSで暗号化
 	encryptedKey, err := s.kmsClient.Encrypt(ctx, plainKey)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to encrypt key",
+			"operation", "create_key",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, fmt.Errorf("encrypting key: %w", err)
 	}
 
@@ -83,6 +98,11 @@ func (s *KeyService) CreateKey(ctx context.Context, tenantID string) (*domain.Ke
 		Status:       domain.KeyStatusActive,
 	}
 	if err := s.repo.Create(ctx, key); err != nil {
+		slog.ErrorContext(ctx, "failed to create key in database",
+			"operation", "create_key",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, fmt.Errorf("creating key: %w", err)
 	}
 
@@ -98,15 +118,29 @@ func (s *KeyService) CreateKey(ctx context.Context, tenantID string) (*domain.Ke
 func (s *KeyService) GetCurrentKey(ctx context.Context, tenantID string) (*domain.Key, error) {
 	key, err := s.repo.FindLatestActiveByTenantID(ctx, tenantID)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to find current key",
+			"operation", "get_current_key",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, fmt.Errorf("finding current key: %w", err)
 	}
 	if key == nil {
+		slog.WarnContext(ctx, "key not found",
+			"operation", "get_current_key",
+			"tenant_id", tenantID,
+		)
 		return nil, domain.ErrKeyNotFound
 	}
 
 	// KMSで復号
 	plainKey, err := s.kmsClient.Decrypt(ctx, key.EncryptedKey)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to decrypt key",
+			"operation", "get_current_key",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, fmt.Errorf("decrypting key: %w", err)
 	}
 
@@ -121,18 +155,40 @@ func (s *KeyService) GetCurrentKey(ctx context.Context, tenantID string) (*domai
 func (s *KeyService) GetKeyByGeneration(ctx context.Context, tenantID string, generation uint) (*domain.Key, error) {
 	key, err := s.repo.FindByTenantIDAndGeneration(ctx, tenantID, generation)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to find key by generation",
+			"operation", "get_key_by_generation",
+			"tenant_id", tenantID,
+			"generation", generation,
+			"error", err,
+		)
 		return nil, fmt.Errorf("finding key: %w", err)
 	}
 	if key == nil {
+		slog.WarnContext(ctx, "key not found",
+			"operation", "get_key_by_generation",
+			"tenant_id", tenantID,
+			"generation", generation,
+		)
 		return nil, domain.ErrKeyNotFound
 	}
 	if key.Status == domain.KeyStatusDisabled {
+		slog.WarnContext(ctx, "key is disabled",
+			"operation", "get_key_by_generation",
+			"tenant_id", tenantID,
+			"generation", generation,
+		)
 		return nil, domain.ErrKeyDisabled
 	}
 
 	// KMSで復号
 	plainKey, err := s.kmsClient.Decrypt(ctx, key.EncryptedKey)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to decrypt key",
+			"operation", "get_key_by_generation",
+			"tenant_id", tenantID,
+			"generation", generation,
+			"error", err,
+		)
 		return nil, fmt.Errorf("decrypting key: %w", err)
 	}
 
@@ -148,9 +204,18 @@ func (s *KeyService) RotateKey(ctx context.Context, tenantID string) (*domain.Ke
 	// 既存鍵の確認
 	maxGen, err := s.repo.GetMaxGeneration(ctx, tenantID)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to get max generation",
+			"operation", "rotate_key",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, fmt.Errorf("getting max generation: %w", err)
 	}
 	if maxGen == 0 {
+		slog.WarnContext(ctx, "key not found for rotation",
+			"operation", "rotate_key",
+			"tenant_id", tenantID,
+		)
 		return nil, domain.ErrKeyNotFound
 	}
 
@@ -163,6 +228,11 @@ func (s *KeyService) RotateKey(ctx context.Context, tenantID string) (*domain.Ke
 	// KMSで暗号化
 	encryptedKey, err := s.kmsClient.Encrypt(ctx, plainKey)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to encrypt key",
+			"operation", "rotate_key",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, fmt.Errorf("encrypting key: %w", err)
 	}
 
@@ -175,6 +245,11 @@ func (s *KeyService) RotateKey(ctx context.Context, tenantID string) (*domain.Ke
 		Status:       domain.KeyStatusActive,
 	}
 	if err := s.repo.Create(ctx, key); err != nil {
+		slog.ErrorContext(ctx, "failed to create rotated key in database",
+			"operation", "rotate_key",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, fmt.Errorf("creating key: %w", err)
 	}
 
@@ -190,6 +265,11 @@ func (s *KeyService) RotateKey(ctx context.Context, tenantID string) (*domain.Ke
 func (s *KeyService) ListKeys(ctx context.Context, tenantID string) ([]*domain.KeyMetadata, error) {
 	keys, err := s.repo.FindAllByTenantID(ctx, tenantID)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to find all keys",
+			"operation", "list_keys",
+			"tenant_id", tenantID,
+			"error", err,
+		)
 		return nil, fmt.Errorf("finding keys: %w", err)
 	}
 
@@ -209,16 +289,38 @@ func (s *KeyService) ListKeys(ctx context.Context, tenantID string) ([]*domain.K
 func (s *KeyService) DisableKey(ctx context.Context, tenantID string, generation uint) error {
 	key, err := s.repo.FindByTenantIDAndGeneration(ctx, tenantID, generation)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to find key for disable",
+			"operation", "disable_key",
+			"tenant_id", tenantID,
+			"generation", generation,
+			"error", err,
+		)
 		return fmt.Errorf("finding key: %w", err)
 	}
 	if key == nil {
+		slog.WarnContext(ctx, "key not found",
+			"operation", "disable_key",
+			"tenant_id", tenantID,
+			"generation", generation,
+		)
 		return domain.ErrKeyNotFound
 	}
 	if key.Status == domain.KeyStatusDisabled {
+		slog.WarnContext(ctx, "key is already disabled",
+			"operation", "disable_key",
+			"tenant_id", tenantID,
+			"generation", generation,
+		)
 		return domain.ErrKeyAlreadyDisabled
 	}
 
 	if err := s.repo.UpdateStatus(ctx, key.ID, domain.KeyStatusDisabled); err != nil {
+		slog.ErrorContext(ctx, "failed to update key status",
+			"operation", "disable_key",
+			"tenant_id", tenantID,
+			"generation", generation,
+			"error", err,
+		)
 		return fmt.Errorf("updating status: %w", err)
 	}
 
