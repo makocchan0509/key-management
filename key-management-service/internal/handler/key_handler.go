@@ -81,16 +81,16 @@ func (h *KeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	metadata, err := h.service.CreateKey(r.Context(), tenantID)
 	if err != nil {
 		if errors.Is(err, domain.ErrKeyAlreadyExists) {
-			middleware.WriteAuditLog("CREATE_KEY", tenantID, 0, "FAILED")
+			middleware.WriteAuditLog(r.Context(), "CREATE_KEY", tenantID, 0, "FAILED")
 			httputil.Error(w, http.StatusConflict, "KEY_ALREADY_EXISTS", "key already exists for this tenant")
 			return
 		}
-		middleware.WriteAuditLog("CREATE_KEY", tenantID, 0, "FAILED")
+		middleware.WriteAuditLog(r.Context(), "CREATE_KEY", tenantID, 0, "FAILED")
 		httputil.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 		return
 	}
 
-	middleware.WriteAuditLog("CREATE_KEY", tenantID, metadata.Generation, "SUCCESS")
+	middleware.WriteAuditLog(r.Context(), "CREATE_KEY", tenantID, metadata.Generation, "SUCCESS")
 	httputil.JSON(w, http.StatusCreated, KeyMetadataResponse{
 		TenantID:   metadata.TenantID,
 		Generation: metadata.Generation,
@@ -110,16 +110,16 @@ func (h *KeyHandler) GetCurrentKey(w http.ResponseWriter, r *http.Request) {
 	key, err := h.service.GetCurrentKey(r.Context(), tenantID)
 	if err != nil {
 		if errors.Is(err, domain.ErrKeyNotFound) {
-			middleware.WriteAuditLog("GET_CURRENT_KEY", tenantID, 0, "FAILED")
+			middleware.WriteAuditLog(r.Context(), "GET_CURRENT_KEY", tenantID, 0, "FAILED")
 			httputil.Error(w, http.StatusNotFound, "KEY_NOT_FOUND", "key not found for this tenant")
 			return
 		}
-		middleware.WriteAuditLog("GET_CURRENT_KEY", tenantID, 0, "FAILED")
+		middleware.WriteAuditLog(r.Context(), "GET_CURRENT_KEY", tenantID, 0, "FAILED")
 		httputil.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 		return
 	}
 
-	middleware.WriteAuditLog("GET_CURRENT_KEY", tenantID, key.Generation, "SUCCESS")
+	middleware.WriteAuditLog(r.Context(), "GET_CURRENT_KEY", tenantID, key.Generation, "SUCCESS")
 	httputil.JSON(w, http.StatusOK, KeyResponse{
 		TenantID:   key.TenantID,
 		Generation: key.Generation,
@@ -145,21 +145,21 @@ func (h *KeyHandler) GetKeyByGeneration(w http.ResponseWriter, r *http.Request) 
 	key, err := h.service.GetKeyByGeneration(r.Context(), tenantID, generation)
 	if err != nil {
 		if errors.Is(err, domain.ErrKeyNotFound) {
-			middleware.WriteAuditLog("GET_KEY_BY_GENERATION", tenantID, generation, "FAILED")
+			middleware.WriteAuditLog(r.Context(), "GET_KEY_BY_GENERATION", tenantID, generation, "FAILED")
 			httputil.Error(w, http.StatusNotFound, "KEY_NOT_FOUND", "key not found for this tenant and generation")
 			return
 		}
 		if errors.Is(err, domain.ErrKeyDisabled) {
-			middleware.WriteAuditLog("GET_KEY_BY_GENERATION", tenantID, generation, "FAILED")
+			middleware.WriteAuditLog(r.Context(), "GET_KEY_BY_GENERATION", tenantID, generation, "FAILED")
 			httputil.Error(w, http.StatusGone, "KEY_DISABLED", "key has been disabled")
 			return
 		}
-		middleware.WriteAuditLog("GET_KEY_BY_GENERATION", tenantID, generation, "FAILED")
+		middleware.WriteAuditLog(r.Context(), "GET_KEY_BY_GENERATION", tenantID, generation, "FAILED")
 		httputil.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 		return
 	}
 
-	middleware.WriteAuditLog("GET_KEY_BY_GENERATION", tenantID, generation, "SUCCESS")
+	middleware.WriteAuditLog(r.Context(), "GET_KEY_BY_GENERATION", tenantID, generation, "SUCCESS")
 	httputil.JSON(w, http.StatusOK, KeyResponse{
 		TenantID:   key.TenantID,
 		Generation: key.Generation,
@@ -178,16 +178,16 @@ func (h *KeyHandler) RotateKey(w http.ResponseWriter, r *http.Request) {
 	metadata, err := h.service.RotateKey(r.Context(), tenantID)
 	if err != nil {
 		if errors.Is(err, domain.ErrKeyNotFound) {
-			middleware.WriteAuditLog("ROTATE_KEY", tenantID, 0, "FAILED")
+			middleware.WriteAuditLog(r.Context(), "ROTATE_KEY", tenantID, 0, "FAILED")
 			httputil.Error(w, http.StatusNotFound, "KEY_NOT_FOUND", "key not found for this tenant")
 			return
 		}
-		middleware.WriteAuditLog("ROTATE_KEY", tenantID, 0, "FAILED")
+		middleware.WriteAuditLog(r.Context(), "ROTATE_KEY", tenantID, 0, "FAILED")
 		httputil.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 		return
 	}
 
-	middleware.WriteAuditLog("ROTATE_KEY", tenantID, metadata.Generation, "SUCCESS")
+	middleware.WriteAuditLog(r.Context(), "ROTATE_KEY", tenantID, metadata.Generation, "SUCCESS")
 	httputil.JSON(w, http.StatusCreated, KeyMetadataResponse{
 		TenantID:   metadata.TenantID,
 		Generation: metadata.Generation,
@@ -206,12 +206,12 @@ func (h *KeyHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 
 	keys, err := h.service.ListKeys(r.Context(), tenantID)
 	if err != nil {
-		middleware.WriteAuditLog("LIST_KEYS", tenantID, 0, "FAILED")
+		middleware.WriteAuditLog(r.Context(), "LIST_KEYS", tenantID, 0, "FAILED")
 		httputil.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 		return
 	}
 
-	middleware.WriteAuditLog("LIST_KEYS", tenantID, 0, "SUCCESS")
+	middleware.WriteAuditLog(r.Context(), "LIST_KEYS", tenantID, 0, "SUCCESS")
 	response := KeyListResponse{
 		Keys: make([]KeyMetadataResponse, len(keys)),
 	}
@@ -244,20 +244,20 @@ func (h *KeyHandler) DisableKey(w http.ResponseWriter, r *http.Request) {
 	err = h.service.DisableKey(r.Context(), tenantID, generation)
 	if err != nil {
 		if errors.Is(err, domain.ErrKeyNotFound) {
-			middleware.WriteAuditLog("DISABLE_KEY", tenantID, generation, "FAILED")
+			middleware.WriteAuditLog(r.Context(), "DISABLE_KEY", tenantID, generation, "FAILED")
 			httputil.Error(w, http.StatusNotFound, "KEY_NOT_FOUND", "key not found for this tenant and generation")
 			return
 		}
 		if errors.Is(err, domain.ErrKeyAlreadyDisabled) {
-			middleware.WriteAuditLog("DISABLE_KEY", tenantID, generation, "FAILED")
+			middleware.WriteAuditLog(r.Context(), "DISABLE_KEY", tenantID, generation, "FAILED")
 			httputil.Error(w, http.StatusConflict, "KEY_ALREADY_DISABLED", "key is already disabled")
 			return
 		}
-		middleware.WriteAuditLog("DISABLE_KEY", tenantID, generation, "FAILED")
+		middleware.WriteAuditLog(r.Context(), "DISABLE_KEY", tenantID, generation, "FAILED")
 		httputil.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 		return
 	}
 
-	middleware.WriteAuditLog("DISABLE_KEY", tenantID, generation, "SUCCESS")
+	middleware.WriteAuditLog(r.Context(), "DISABLE_KEY", tenantID, generation, "SUCCESS")
 	w.WriteHeader(http.StatusAccepted)
 }

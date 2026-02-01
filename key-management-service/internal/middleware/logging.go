@@ -2,6 +2,7 @@
 package middleware
 
 import (
+	"context"
 	"log/slog"
 	"time"
 )
@@ -16,8 +17,8 @@ type AuditLog struct {
 }
 
 // WriteAuditLog は監査ログを出力する。
-func WriteAuditLog(operation string, tenantID string, generation uint, result string) {
-	slog.Info("key operation completed",
+func WriteAuditLog(ctx context.Context, operation string, tenantID string, generation uint, result string) {
+	slog.InfoContext(ctx, "key operation completed",
 		"operation", operation,
 		"tenant_id", tenantID,
 		"generation", generation,

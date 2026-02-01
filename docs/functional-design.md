@@ -912,57 +912,45 @@ W3C TraceContext仕様に準拠したヘッダでトレースコンテキスト�
 ```go
 import (
     "context"
-    "os"
-    "strconv"
 
     "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/attribute"
     "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
     "go.opentelemetry.io/otel/propagation"
     "go.opentelemetry.io/otel/sdk/resource"
     sdktrace "go.opentelemetry.io/otel/sdk/trace"
     semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials/oauth"
+
+    "key-management-service/config"
 )
 
-// IsOtelEnabled はOpenTelemetryが有効かどうかを返す
-func IsOtelEnabled() bool {
-    return os.Getenv("OTEL_ENABLED") == "true"
-}
-
-// GetSamplingRate はサンプリング率を取得する（デフォルト: 1.0）
-func GetSamplingRate() float64 {
-    rateStr := os.Getenv("OTEL_SAMPLING_RATE")
-    if rateStr == "" {
-        return 1.0
-    }
-    rate, err := strconv.ParseFloat(rateStr, 64)
-    if err != nil || rate < 0 || rate > 1 {
-        return 1.0
-    }
-    return rate
-}
-
 // InitTracer はトレーサープロバイダーを初期化する
-// OTEL_ENABLED=false の場合は nil を返す（トレーシング無効）
-func InitTracer(ctx context.Context) (*sdktrace.TracerProvider, error) {
-    if !IsOtelEnabled() {
+// cfg.OtelEnabled=false の場合は nil を返す（トレーシング無効）
+func InitTracer(ctx context.Context, cfg *config.Config) (*sdktrace.TracerProvider, error) {
+    if !cfg.OtelEnabled {
         return nil, nil
     }
 
+    // GCP認証情報を取得
+    creds, err := oauth.NewApplicationDefault(ctx)
+    if err != nil {
+        return nil, err
+    }
+
     exporter, err := otlptracegrpc.New(ctx,
-        otlptracegrpc.WithEndpoint(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
+        otlptracegrpc.WithDialOption(grpc.WithPerRPCCredentials(creds)),
     )
     if err != nil {
         return nil, err
     }
 
-    serviceName := os.Getenv("OTEL_SERVICE_NAME")
-    if serviceName == "" {
-        serviceName = "key-management-service"
-    }
-
     res, err := resource.New(ctx,
         resource.WithAttributes(
-            semconv.ServiceName(serviceName),
+            semconv.ServiceName(cfg.OtelServiceName),
+            attribute.String("gcp.project_id", cfg.GoogleCloudProject),
         ),
     )
     if err != nil {
@@ -970,7 +958,7 @@ func InitTracer(ctx context.Context) (*sdktrace.TracerProvider, error) {
     }
 
     // サンプリング率を設定
-    sampler := sdktrace.TraceIDRatioBased(GetSamplingRate())
+    sampler := sdktrace.TraceIDRatioBased(cfg.OtelSamplingRate)
 
     tp := sdktrace.NewTracerProvider(
         sdktrace.WithBatcher(exporter),
@@ -996,29 +984,34 @@ func InitTracer(ctx context.Context) (*sdktrace.TracerProvider, error) {
 import (
     "net/http"
 
-    "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+    "github.com/go-chi/chi/v5"
+    chimiddleware "github.com/go-chi/chi/v5/middleware"
+
+    "key-management-service/config"
+    "key-management-service/internal/middleware"
 )
 
-func NewRouter() http.Handler {
+func NewRouter(h *KeyHandler, cfg *config.Config) http.Handler {
     r := chi.NewRouter()
 
-    // OpenTelemetryミドルウェアを適用
-    r.Use(func(next http.Handler) http.Handler {
-        return otelhttp.NewHandler(next, "key-management-service",
-            otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
-                return r.Method + " " + r.URL.Path
-            }),
-        )
-    })
+    // ミドルウェア
+    r.Use(chimiddleware.Logger)
+    r.Use(chimiddleware.Recoverer)
+    r.Use(chimiddleware.RequestID)
+
+    // トレーシングミドルウェア（OTEL_ENABLED=trueの場合のみ）
+    if cfg.OtelEnabled {
+        r.Use(middleware.Tracing(cfg.OtelServiceName))
+    }
 
     // ルート定義
     r.Route("/v1/tenants/{tenant_id}/keys", func(r chi.Router) {
-        r.Post("/", createKeyHandler)
-        r.Get("/", listKeysHandler)
-        r.Get("/current", getCurrentKeyHandler)
-        r.Get("/{generation}", getKeyByGenerationHandler)
-        r.Delete("/{generation}", disableKeyHandler)
-        r.Post("/rotate", rotateKeyHandler)
+        r.Post("/", h.CreateKey)
+        r.Get("/", h.ListKeys)
+        r.Get("/current", h.GetCurrentKey)
+        r.Get("/{generation}", h.GetKeyByGeneration)
+        r.Delete("/{generation}", h.DisableKey)
+        r.Post("/rotate", h.RotateKey)
     })
 
     return r
@@ -1083,21 +1076,53 @@ func (s *KeyService) generateKey(ctx context.Context) ([]byte, error) {
 
 ```go
 import (
+    "log/slog"
+    "time"
+
     "gorm.io/driver/mysql"
     "gorm.io/gorm"
+    "gorm.io/gorm/logger"
     "gorm.io/plugin/opentelemetry/tracing"
+
+    "key-management-service/config"
 )
 
-func NewDB(dsn string) (*gorm.DB, error) {
-    db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+func NewDB(dsn string, cfg *config.Config) (*gorm.DB, error) {
+    db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+        Logger: logger.Default.LogMode(logger.Silent),
+    })
     if err != nil {
+        slog.Error("failed to open database connection",
+            "operation", "db_init",
+            "error", err,
+        )
         return nil, err
     }
 
-    // OpenTelemetryプラグインを適用
-    if err := db.Use(tracing.NewPlugin()); err != nil {
+    // OpenTelemetryプラグインを適用（OTEL_ENABLED=trueの場合のみ）
+    if cfg.OtelEnabled {
+        if err := db.Use(tracing.NewPlugin()); err != nil {
+            slog.Error("failed to apply OpenTelemetry plugin",
+                "operation", "db_init",
+                "error", err,
+            )
+            return nil, err
+        }
+    }
+
+    sqlDB, err := db.DB()
+    if err != nil {
+        slog.Error("failed to get underlying sql.DB",
+            "operation", "db_init",
+            "error", err,
+        )
         return nil, err
     }
+
+    // 接続プール設定
+    sqlDB.SetMaxOpenConns(10)
+    sqlDB.SetMaxIdleConns(5)
+    sqlDB.SetConnMaxLifetime(30 * time.Minute)
 
     return db, nil
 }

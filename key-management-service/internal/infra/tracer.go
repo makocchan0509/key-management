@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -12,6 +13,9 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 
 	"key-management-service/config"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/oauth"
 )
 
 // InitTracer はトレーサープロバイダーを初期化する。
@@ -21,9 +25,13 @@ func InitTracer(ctx context.Context, cfg *config.Config) (*sdktrace.TracerProvid
 		return nil, nil
 	}
 
+	creds, err := oauth.NewApplicationDefault(ctx)
+	if err != nil {
+		panic(err)
+	}
+
 	exporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithEndpoint(cfg.OtelEndpoint),
-		// otlptracegrpc.WithInsecure(), // ローカル開発用。本番ではTLS設定を推奨
+		otlptracegrpc.WithDialOption(grpc.WithPerRPCCredentials(creds)),
 	)
 	if err != nil {
 		return nil, err
@@ -32,6 +40,7 @@ func InitTracer(ctx context.Context, cfg *config.Config) (*sdktrace.TracerProvid
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceName(cfg.OtelServiceName),
+			attribute.String("gcp.project_id", cfg.GoogleCloudProject),
 		),
 	)
 	if err != nil {
