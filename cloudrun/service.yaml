@@ -12,19 +12,19 @@ spec:
         autoscaling.knative.dev/maxScale: "10"
         run.googleapis.com/container-dependencies: '{"key-management-service":["cloud-sql-proxy"]}'
     spec:
-      serviceAccountName: key-management-service@genai-agent-engine.iam.gserviceaccount.com
+      serviceAccountName: ""
       containers:
-      - image: asia-northeast1-docker.pkg.dev/genai-agent-engine/key-management-service/key-management-service:latest
+      - image: ""
         name: key-management-service
         ports:
         - containerPort: 8080
         env:
         - name: DATABASE_URL
-          value: "key-manager:P@ssw0rd!@tcp(127.0.0.1:3306)/key_management?parseTime=true"
+          value: ""
         - name: KMS_KEY_NAME
-          value: "projects/genai-agent-engine/locations/asia-northeast1/keyRings/key-management/cryptoKeys/kek"
+          value: ""
         - name: GOOGLE_CLOUD_PROJECT
-          value: "genai-agent-engine"
+          value: ""
         - name: LOG_LEVEL
           value: "INFO"
         resources:
@@ -36,7 +36,7 @@ spec:
         args:
         - "--address=0.0.0.0"
         - "--port=3306"
-        - "genai-agent-engine:asia-northeast1:key-management"
+        - ""
         startupProbe:
          tcpSocket:
            port: 3306
