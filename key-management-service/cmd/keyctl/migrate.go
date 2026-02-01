@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
+	"key-management-service/config"
 	"key-management-service/internal/domain"
 	"key-management-service/internal/infra"
 	"key-management-service/internal/repository"
@@ -34,8 +35,13 @@ var migrateUpCmd = &cobra.Command{
 			return fmt.Errorf("DATABASE_URL environment variable is required")
 		}
 
+		// CLIではトレーシング無効
+		cfg := &config.Config{
+			OtelEnabled: false,
+		}
+
 		// データベース接続
-		db, err := infra.NewDB(dsn)
+		db, err := infra.NewDB(dsn, cfg)
 		if err != nil {
 			return fmt.Errorf("failed to connect to database: %w", err)
 		}
@@ -86,8 +92,13 @@ var migrateStatusCmd = &cobra.Command{
 			return fmt.Errorf("DATABASE_URL environment variable is required")
 		}
 
+		// CLIではトレーシング無効
+		cfg := &config.Config{
+			OtelEnabled: false,
+		}
+
 		// データベース接続
-		db, err := infra.NewDB(dsn)
+		db, err := infra.NewDB(dsn, cfg)
 		if err != nil {
 			return fmt.Errorf("failed to connect to database: %w", err)
 		}

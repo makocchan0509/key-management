@@ -20,14 +20,13 @@ spec:
         - containerPort: 8080
         env:
         - name: DATABASE_URL
-          value: "key-manager:P@ssw0rd!@tcp(127.0.0.1:3306)/key_management"
+          value: "key-manager:P@ssw0rd!@tcp(127.0.0.1:3306)/key_management?parseTime=true"
         - name: KMS_KEY_NAME
-          value: "projects/genai-agent-engine/locations/asia-northeast1/keyRings/key-management/cryptoKeys/kek/cryptoKeyVersions/1"
+          value: "projects/genai-agent-engine/locations/asia-northeast1/keyRings/key-management/cryptoKeys/kek"
         - name: GOOGLE_CLOUD_PROJECT
           value: "genai-agent-engine"
         - name: LOG_LEVEL
           value: "INFO"
-        
         resources:
           limits:
             cpu: 1000m

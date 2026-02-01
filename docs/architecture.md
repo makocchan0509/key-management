@@ -302,3 +302,39 @@ Cloud KMSはエミュレータが提供されていないため、統合テス�
 | GOOGLE_CLOUD_PROJECT | 必須 | GCPプロジェクトID | my-project-id |
 | PORT | 任意 | APIサーバーポート（デフォルト: 8080） | 8080 |
 | LOG_LEVEL | 任意 | ログレベル（デフォルト: INFO） | DEBUG / INFO / WARN / ERROR |
+| MIGRATIONS_DIR | 任意 | マイグレーションファイルディレクトリ（デフォルト: ./migrations） | ./migrations |
+
+### .envファイルサポート
+
+ローカル開発環境での利便性のため、APIサーバー起動時に`.env`ファイルから環境変数を読み込む機能をサポートする。
+
+**動作仕様**:
+- サーバー起動時に`godotenv.Load()`でプロジェクトルートの`.env`ファイルを読み込む
+- `.env`ファイルが存在しない場合はエラーにならず、無視される
+- **既存の環境変数は上書きしない**（システム環境変数が優先）
+- 本番環境（Cloud Run）では`.env`ファイルは使用せず、Cloud Runの環境変数設定を使用する
+
+**`.env.example`ファイル**:
+
+```bash
+# データベース接続
+DATABASE_URL=user:password@tcp(localhost:3306)/keydb?parseTime=true
+
+# Cloud KMS
+KMS_KEY_NAME=projects/my-project/locations/asia-northeast1/keyRings/my-keyring/cryptoKeys/my-key
+
+# Google Cloud
+GOOGLE_CLOUD_PROJECT=my-project-id
+
+# サーバー設定
+PORT=8080
+LOG_LEVEL=DEBUG
+
+# OpenTelemetry（ローカル開発時は無効推奨）
+OTEL_ENABLED=false
+# OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
+# OTEL_SERVICE_NAME=key-management-service
+# OTEL_SAMPLING_RATE=1.0
+```
+
+**注意**: `.env`ファイルには機密情報が含まれるため、`.gitignore`に追加して Git 管理対象外とすること。`.env.example`をテンプレートとして提供する。

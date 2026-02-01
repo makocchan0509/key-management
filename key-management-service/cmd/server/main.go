@@ -41,14 +41,30 @@ func main() {
 	default:
 		logLevel = slog.LevelInfo
 	}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})))
+
+	// トレーサー初期化（ロガー設定の前に実行）
+	tp, err := infra.InitTracer(ctx, cfg)
+	if err != nil {
+		slog.Error("failed to init tracer", "error", err)
+		os.Exit(1)
+	}
+	if tp != nil {
+		defer func() {
+			if err := tp.Shutdown(ctx); err != nil {
+				slog.Error("failed to shutdown tracer", "error", err)
+			}
+		}()
+	}
+
+	// トレース情報付きロガーを設定
+	infra.SetupLogger(cfg, logLevel)
 
 	// DB初期化
 	if cfg.DatabaseURL == "" {
 		slog.Error("DATABASE_URL is not set")
 		os.Exit(1)
 	}
-	db, err := infra.NewDB(cfg.DatabaseURL)
+	db, err := infra.NewDB(cfg.DatabaseURL, cfg)
 	if err != nil {
 		slog.Error("failed to init database", "error", err)
 		os.Exit(1)
@@ -70,7 +86,7 @@ func main() {
 	repo := repository.NewKeyRepository(db)
 	service := usecase.NewKeyService(repo, kmsClient)
 	h := handler.NewKeyHandler(service)
-	router := handler.NewRouter(h)
+	router := handler.NewRouter(h, cfg)
 
 	// サーバー起動
 	server := &http.Server{

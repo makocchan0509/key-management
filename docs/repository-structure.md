@@ -8,21 +8,26 @@ key-management-service/
 │   ├── server/                      # APIサーバーエントリポイント
 │   │   └── main.go
 │   └── keyctl/                      # CLIツールエントリポイント
-│       └── main.go
+│       ├── main.go
+│       └── migrate.go               # マイグレーションコマンド
 ├── internal/
 │   ├── domain/                      # ドメインモデル・ビジネスルール
 │   │   ├── key.go
+│   │   ├── migration.go             # マイグレーションドメインモデル
 │   │   └── errors.go
 │   ├── usecase/                     # アプリケーションロジック
-│   │   └── key_service.go
+│   │   ├── key_service.go
+│   │   └── migration_service.go     # マイグレーションサービス
 │   ├── handler/                     # HTTPハンドラ
 │   │   ├── key_handler.go
 │   │   └── router.go
 │   ├── repository/                  # データアクセス実装
-│   │   └── key_repository.go
+│   │   ├── key_repository.go
+│   │   └── migration_repository.go  # マイグレーションリポジトリ
 │   ├── infra/                       # 外部サービス接続
 │   │   ├── database.go
 │   │   ├── kms.go
+│   │   ├── logger.go                # トレース連携ロガー
 │   │   └── tracer.go
 │   └── middleware/                  # HTTPミドルウェア
 │       ├── logging.go
@@ -42,6 +47,7 @@ key-management-service/
 │   ├── architecture.md
 │   ├── repository-structure.md
 │   └── development-guidelines.md
+├── .env.example                     # 環境変数テンプレート
 ├── .gitignore
 ├── go.mod
 ├── go.sum
@@ -202,6 +208,7 @@ Goコンパイラが外部パッケージからのimportを禁止するディレ
 
 **配置ファイル**:
 - `key.go`: EncryptionKeyエンティティの構造体定義、ステータス定義
+- `migration.go`: Migrationエンティティの構造体定義、ステータス定義
 - `errors.go`: ドメイン固有のエラー定義
 
 **命名規則**:
@@ -215,6 +222,7 @@ Goコンパイラが外部パッケージからのimportを禁止するディレ
 ```
 internal/domain/
 ├── key.go          # EncryptionKey エンティティ
+├── migration.go    # Migration エンティティ
 └── errors.go       # KeyNotFoundError, KeyAlreadyExistsError 等
 ```
 
@@ -268,7 +276,34 @@ var (
     ErrKeyAlreadyDisabled = errors.New("key is already disabled")
     ErrInvalidTenantID    = errors.New("invalid tenant ID")
     ErrInvalidGeneration  = errors.New("invalid generation")
+
+    // マイグレーション関連エラー
+    ErrMigrationFailed       = errors.New("migration failed")
+    ErrMigrationFileNotFound = errors.New("migration file not found")
+    ErrInvalidMigrationFile  = errors.New("invalid migration file")
 )
+```
+
+```go
+// internal/domain/migration.go
+package domain
+
+import "time"
+
+type MigrationStatus string
+
+const (
+    MigrationStatusPending MigrationStatus = "pending"
+    MigrationStatusApplied MigrationStatus = "applied"
+)
+
+type Migration struct {
+    Version   string          // マイグレーションバージョン（例: "001", "002"）
+    Name      string          // マイグレーション名（ファイル名から抽出）
+    AppliedAt *time.Time      // 適用日時（未適用の場合はnil）
+    FilePath  string          // マイグレーションファイルのパス
+    Status    MigrationStatus // 適用状態
+}
 ```
 
 #### internal/usecase/ (アプリケーションロジック)
@@ -277,6 +312,7 @@ var (
 
 **配置ファイル**:
 - `key_service.go`: 鍵管理のユースケース実装とリポジトリ・KMSインターフェースの定義
+- `migration_service.go`: データベースマイグレーションのユースケース実装
 
 **命名規則**:
 - `{リソース名}_service.go`
@@ -284,11 +320,13 @@ var (
 **依存関係**:
 - 依存可能: `domain`
 - 依存禁止: `handler`, `repository`（実装）, `infra`
+- **例外**: `migration_service.go`はマイグレーションSQL実行のため`gorm.DB`に直接依存する
 
 **例**:
 ```
 internal/usecase/
-└── key_service.go
+├── key_service.go
+└── migration_service.go
 ```
 
 ```go
@@ -400,6 +438,7 @@ func (h *KeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 
 **配置ファイル**:
 - `key_repository.go`: KeyRepositoryインターフェースのgorm実装
+- `migration_repository.go`: MigrationRepositoryインターフェースのgorm実装（schema_migrationsテーブル操作）
 
 **命名規則**:
 - `{リソース名}_repository.go`
@@ -411,7 +450,8 @@ func (h *KeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 **例**:
 ```
 internal/repository/
-└── key_repository.go
+├── key_repository.go
+└── migration_repository.go
 ```
 
 ```go
@@ -452,10 +492,11 @@ func (r *KeyRepository) ExistsByTenantID(ctx context.Context, tenantID string) (
 **配置ファイル**:
 - `database.go`: gormによるCloud SQL接続の初期化・管理
 - `kms.go`: Cloud KMSクライアントの初期化・暗号化/復号実装
+- `logger.go`: トレース情報付きslogハンドラ（TraceHandler）の実装
 - `tracer.go`: OpenTelemetryトレーサープロバイダーの初期化
 
 **依存関係**:
-- 依存可能: 標準ライブラリ、外部ライブラリ
+- 依存可能: 標準ライブラリ、外部ライブラリ、`config`
 - 依存禁止: `domain`, `usecase`, `handler`
 
 **例**:
@@ -463,6 +504,7 @@ func (r *KeyRepository) ExistsByTenantID(ctx context.Context, tenantID string) (
 internal/infra/
 ├── database.go
 ├── kms.go
+├── logger.go
 └── tracer.go
 ```
 
@@ -605,14 +647,15 @@ api/
 |---|---|---|---|
 | APIサーバーエントリポイント | `cmd/server/` | `main.go` | `cmd/server/main.go` |
 | CLIエントリポイント | `cmd/keyctl/` | `main.go` | `cmd/keyctl/main.go` |
-| ドメインモデル | `internal/domain/` | `{リソース}.go` | `key.go` |
+| CLIサブコマンド | `cmd/keyctl/` | `{コマンド名}.go` | `migrate.go` |
+| ドメインモデル | `internal/domain/` | `{リソース}.go` | `key.go`, `migration.go` |
 | ドメインエラー | `internal/domain/` | `errors.go` | `errors.go` |
-| ユースケース | `internal/usecase/` | `{リソース}_service.go` | `key_service.go` |
+| ユースケース | `internal/usecase/` | `{リソース}_service.go` | `key_service.go`, `migration_service.go` |
 | HTTPハンドラ | `internal/handler/` | `{リソース}_handler.go` | `key_handler.go` |
 | ルーター | `internal/handler/` | `router.go` | `router.go` |
-| リポジトリ実装 | `internal/repository/` | `{リソース}_repository.go` | `key_repository.go` |
+| リポジトリ実装 | `internal/repository/` | `{リソース}_repository.go` | `key_repository.go`, `migration_repository.go` |
 | ミドルウェア | `internal/middleware/` | `{機能名}.go` | `logging.go`, `tracing.go` |
-| 基盤コード | `internal/infra/` | `{技術名}.go` | `database.go`, `kms.go`, `tracer.go` |
+| 基盤コード | `internal/infra/` | `{技術名}.go` | `database.go`, `kms.go`, `logger.go`, `tracer.go` |
 | 設定 | `config/` | `config.go` | `config.go` |
 | マイグレーション | `migrations/` | `{連番}_{説明}.sql` | `001_create_encryption_keys.sql` |
 | API定義 | `api/` | `openapi.yaml` | `openapi.yaml` |

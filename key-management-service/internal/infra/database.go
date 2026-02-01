@@ -8,10 +8,13 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/plugin/opentelemetry/tracing"
+
+	"key-management-service/config"
 )
 
 // NewDB はgormによるデータベース接続を初期化する。
-func NewDB(dsn string) (*gorm.DB, error) {
+func NewDB(dsn string, cfg *config.Config) (*gorm.DB, error) {
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -21,6 +24,17 @@ func NewDB(dsn string) (*gorm.DB, error) {
 			"error", err,
 		)
 		return nil, err
+	}
+
+	// OpenTelemetryプラグインを適用（OTEL_ENABLED=trueの場合のみ）
+	if cfg.OtelEnabled {
+		if err := db.Use(tracing.NewPlugin()); err != nil {
+			slog.Error("failed to apply OpenTelemetry plugin",
+				"operation", "db_init",
+				"error", err,
+			)
+			return nil, err
+		}
 	}
 
 	sqlDB, err := db.DB()

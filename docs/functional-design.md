@@ -317,6 +317,7 @@ Commands:
   rotate    鍵をローテーション
   list      鍵一覧を取得
   disable   鍵を無効化
+  migrate   データベースマイグレーションを管理
   version   バージョン情報を表示
   help      ヘルプを表示
 
@@ -361,7 +362,29 @@ keyctl list --tenant <tenant_id>
 keyctl disable --tenant <tenant_id> --generation <generation>
 # 成功時の出力（text形式）:
 # Disabled key for tenant "tenant-001" (generation: 2)
+
+# マイグレーションの実行
+keyctl migrate up
+# 成功時の出力:
+# Applied 2 migration(s) successfully.
+# または
+# No pending migrations.
+
+# マイグレーション状態の確認
+keyctl migrate status
+# 成功時の出力:
+# VERSION   NAME                      STATUS    APPLIED AT
+# -------   ----                      ------    ----------
+# 001       create_encryption_keys    applied   2025-01-28 10:30:00
+# 002       create_schema_migrations  pending   -
 ```
+
+### migrateコマンドの環境変数
+
+| 変数名 | 必須 | 説明 | 例 |
+|--------|------|------|-----|
+| DATABASE_URL | 必須 | データベース接続文字列 | user:password@tcp(localhost:3306)/keydb?parseTime=true |
+| MIGRATIONS_DIR | 任意 | マイグレーションファイルのディレクトリ（デフォルト: ./migrations） | ./migrations |
 
 ### 終了コード
 
@@ -404,7 +427,18 @@ erDiagram
         datetime created_at "DATETIME(6)"
         datetime updated_at "DATETIME(6)"
     }
+    SCHEMA_MIGRATIONS {
+        varchar version PK "VARCHAR(14)"
+        datetime applied_at "DATETIME(6)"
+    }
 ```
+
+### エンティティ: schema_migrations
+
+| 項目名 (論理) | 項目名 (物理) | 型 | 制約 | 説明・例 |
+|:---|:---|:---|:---|:---|
+| バージョン | version | VARCHAR(14) | 必須/主キー | マイグレーションバージョン（例: "001"） |
+| 適用日時 | applied_at | DATETIME(6) | 必須/自動設定 | マイグレーション適用日時（UTC） |
 
 ### DDL (MySQL 8.4)
 
@@ -421,6 +455,12 @@ CREATE TABLE encryption_keys (
     UNIQUE KEY uk_tenant_generation (tenant_id, generation),
     INDEX idx_tenant_id (tenant_id),
     INDEX idx_tenant_status (tenant_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE schema_migrations (
+    version VARCHAR(14) NOT NULL,
+    applied_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (version)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 
@@ -742,6 +782,58 @@ Google Cloud構造化ロギング形式（JSON）で出力:
 | 鍵のローテーション | ROTATE_KEY | tenant_id, generation（新世代） |
 | 鍵一覧の取得 | LIST_KEYS | tenant_id |
 | 鍵の無効化 | DISABLE_KEY | tenant_id, generation |
+
+### トレース連携ロガー (TraceHandler)
+
+slogのハンドラをラップし、OpenTelemetryのトレース情報を自動的にログに付与する。
+OTEL_ENABLED=trueの場合、各ログレコードに以下のフィールドを追加する:
+
+| フィールド | 説明 | 例 |
+|-----------|------|-----|
+| trace | トレースID | "0af7651916cd43dd8448eb211c80319c" |
+| spanId | スパンID | "b7ad6b7169203331" |
+| traceSampled | サンプリングフラグ | true |
+| logging.googleapis.com/trace | Cloud Logging連携用トレースパス | "projects/my-project/traces/..." |
+| logging.googleapis.com/spanId | Cloud Logging連携用スパンID | "b7ad6b7169203331" |
+
+```go
+// TraceHandler はトレース情報をログに付与するslogハンドラ
+type TraceHandler struct {
+    handler     slog.Handler
+    projectID   string
+    otelEnabled bool
+}
+
+// Handle はログレコードを処理し、トレース情報を付与する
+func (h *TraceHandler) Handle(ctx context.Context, r slog.Record) error {
+    if h.otelEnabled {
+        span := trace.SpanFromContext(ctx)
+        if span.SpanContext().IsValid() {
+            spanCtx := span.SpanContext()
+            r.AddAttrs(
+                slog.String("trace", spanCtx.TraceID().String()),
+                slog.String("spanId", spanCtx.SpanID().String()),
+                slog.Bool("traceSampled", spanCtx.IsSampled()),
+            )
+            if h.projectID != "" {
+                r.AddAttrs(
+                    slog.String("logging.googleapis.com/trace",
+                        "projects/"+h.projectID+"/traces/"+spanCtx.TraceID().String()),
+                    slog.String("logging.googleapis.com/spanId", spanCtx.SpanID().String()),
+                )
+            }
+        }
+    }
+    return h.handler.Handle(ctx, r)
+}
+
+// SetupLogger はトレース情報付きのグローバルロガーを設定する
+func SetupLogger(cfg *config.Config, level slog.Level) {
+    jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+    traceHandler := NewTraceHandler(jsonHandler, cfg)
+    slog.SetDefault(slog.New(traceHandler))
+}
+```
 
 ## 分散トレーシング設計
 
@@ -1145,6 +1237,9 @@ func CreateKeyCommand(ctx context.Context, apiURL, tenantID string) error {
 | API通信エラー | 3 | "Error: failed to connect to API: connection refused" |
 | API 4xx エラー | 1 | "Error: {APIのエラーメッセージ}" |
 | API 5xx エラー | 1 | "Error: server error occurred" |
+| マイグレーション失敗 | 1 | "migration failed: version 001: {詳細}" |
+| マイグレーションファイル不正 | 1 | "invalid migration file: {ファイル名}" |
+| DB接続エラー | 1 | "failed to connect to database: {詳細}" |
 
 ### APIレイヤー
 

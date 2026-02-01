@@ -7,10 +7,16 @@ import (
 	"fmt"
 	"log/slog"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"key-management-service/internal/domain"
 )
 
 const keySize = 32 // AES-256 = 256 bits = 32 bytes
+
+var tracer = otel.Tracer("key-management-service")
 
 // KeyRepository はデータアクセスのインターフェース。
 type KeyRepository interface {
@@ -55,9 +61,17 @@ func generateAESKey() ([]byte, error) {
 
 // CreateKey は指定されたテナントに対して新しい暗号鍵を生成する。
 func (s *KeyService) CreateKey(ctx context.Context, tenantID string) (*domain.KeyMetadata, error) {
+	ctx, span := tracer.Start(ctx, "KeyService.CreateKey",
+		trace.WithAttributes(
+			attribute.String("tenant.id", tenantID),
+		),
+	)
+	defer span.End()
+
 	// 既存チェック
 	exists, err := s.repo.ExistsByTenantID(ctx, tenantID)
 	if err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to check existing key",
 			"operation", "create_key",
 			"tenant_id", tenantID,
@@ -82,6 +96,7 @@ func (s *KeyService) CreateKey(ctx context.Context, tenantID string) (*domain.Ke
 	// KMSで暗号化
 	encryptedKey, err := s.kmsClient.Encrypt(ctx, plainKey)
 	if err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to encrypt key",
 			"operation", "create_key",
 			"tenant_id", tenantID,
@@ -98,6 +113,7 @@ func (s *KeyService) CreateKey(ctx context.Context, tenantID string) (*domain.Ke
 		Status:       domain.KeyStatusActive,
 	}
 	if err := s.repo.Create(ctx, key); err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to create key in database",
 			"operation", "create_key",
 			"tenant_id", tenantID,
@@ -106,6 +122,7 @@ func (s *KeyService) CreateKey(ctx context.Context, tenantID string) (*domain.Ke
 		return nil, fmt.Errorf("creating key: %w", err)
 	}
 
+	span.SetAttributes(attribute.Int("key.generation", 1))
 	return &domain.KeyMetadata{
 		TenantID:   key.TenantID,
 		Generation: key.Generation,
@@ -116,8 +133,16 @@ func (s *KeyService) CreateKey(ctx context.Context, tenantID string) (*domain.Ke
 
 // GetCurrentKey は指定されたテナントの現在有効な鍵を取得する。
 func (s *KeyService) GetCurrentKey(ctx context.Context, tenantID string) (*domain.Key, error) {
+	ctx, span := tracer.Start(ctx, "KeyService.GetCurrentKey",
+		trace.WithAttributes(
+			attribute.String("tenant.id", tenantID),
+		),
+	)
+	defer span.End()
+
 	key, err := s.repo.FindLatestActiveByTenantID(ctx, tenantID)
 	if err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to find current key",
 			"operation", "get_current_key",
 			"tenant_id", tenantID,
@@ -136,6 +161,7 @@ func (s *KeyService) GetCurrentKey(ctx context.Context, tenantID string) (*domai
 	// KMSで復号
 	plainKey, err := s.kmsClient.Decrypt(ctx, key.EncryptedKey)
 	if err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to decrypt key",
 			"operation", "get_current_key",
 			"tenant_id", tenantID,
@@ -144,6 +170,7 @@ func (s *KeyService) GetCurrentKey(ctx context.Context, tenantID string) (*domai
 		return nil, fmt.Errorf("decrypting key: %w", err)
 	}
 
+	span.SetAttributes(attribute.Int("key.generation", int(key.Generation)))
 	return &domain.Key{
 		TenantID:   key.TenantID,
 		Generation: key.Generation,
@@ -153,8 +180,17 @@ func (s *KeyService) GetCurrentKey(ctx context.Context, tenantID string) (*domai
 
 // GetKeyByGeneration は指定されたテナント・世代の鍵を取得する。
 func (s *KeyService) GetKeyByGeneration(ctx context.Context, tenantID string, generation uint) (*domain.Key, error) {
+	ctx, span := tracer.Start(ctx, "KeyService.GetKeyByGeneration",
+		trace.WithAttributes(
+			attribute.String("tenant.id", tenantID),
+			attribute.Int("key.generation", int(generation)),
+		),
+	)
+	defer span.End()
+
 	key, err := s.repo.FindByTenantIDAndGeneration(ctx, tenantID, generation)
 	if err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to find key by generation",
 			"operation", "get_key_by_generation",
 			"tenant_id", tenantID,
@@ -183,6 +219,7 @@ func (s *KeyService) GetKeyByGeneration(ctx context.Context, tenantID string, ge
 	// KMSで復号
 	plainKey, err := s.kmsClient.Decrypt(ctx, key.EncryptedKey)
 	if err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to decrypt key",
 			"operation", "get_key_by_generation",
 			"tenant_id", tenantID,
@@ -201,9 +238,17 @@ func (s *KeyService) GetKeyByGeneration(ctx context.Context, tenantID string, ge
 
 // RotateKey は指定されたテナントに対して新しい世代の鍵を生成する。
 func (s *KeyService) RotateKey(ctx context.Context, tenantID string) (*domain.KeyMetadata, error) {
+	ctx, span := tracer.Start(ctx, "KeyService.RotateKey",
+		trace.WithAttributes(
+			attribute.String("tenant.id", tenantID),
+		),
+	)
+	defer span.End()
+
 	// 既存鍵の確認
 	maxGen, err := s.repo.GetMaxGeneration(ctx, tenantID)
 	if err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to get max generation",
 			"operation", "rotate_key",
 			"tenant_id", tenantID,
@@ -228,6 +273,7 @@ func (s *KeyService) RotateKey(ctx context.Context, tenantID string) (*domain.Ke
 	// KMSで暗号化
 	encryptedKey, err := s.kmsClient.Encrypt(ctx, plainKey)
 	if err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to encrypt key",
 			"operation", "rotate_key",
 			"tenant_id", tenantID,
@@ -245,6 +291,7 @@ func (s *KeyService) RotateKey(ctx context.Context, tenantID string) (*domain.Ke
 		Status:       domain.KeyStatusActive,
 	}
 	if err := s.repo.Create(ctx, key); err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to create rotated key in database",
 			"operation", "rotate_key",
 			"tenant_id", tenantID,
@@ -253,6 +300,7 @@ func (s *KeyService) RotateKey(ctx context.Context, tenantID string) (*domain.Ke
 		return nil, fmt.Errorf("creating key: %w", err)
 	}
 
+	span.SetAttributes(attribute.Int("key.generation", int(newGen)))
 	return &domain.KeyMetadata{
 		TenantID:   key.TenantID,
 		Generation: key.Generation,
@@ -263,8 +311,16 @@ func (s *KeyService) RotateKey(ctx context.Context, tenantID string) (*domain.Ke
 
 // ListKeys は指定されたテナントの全世代の鍵メタデータを取得する。
 func (s *KeyService) ListKeys(ctx context.Context, tenantID string) ([]*domain.KeyMetadata, error) {
+	ctx, span := tracer.Start(ctx, "KeyService.ListKeys",
+		trace.WithAttributes(
+			attribute.String("tenant.id", tenantID),
+		),
+	)
+	defer span.End()
+
 	keys, err := s.repo.FindAllByTenantID(ctx, tenantID)
 	if err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to find all keys",
 			"operation", "list_keys",
 			"tenant_id", tenantID,
@@ -287,8 +343,17 @@ func (s *KeyService) ListKeys(ctx context.Context, tenantID string) ([]*domain.K
 
 // DisableKey は指定されたテナント・世代の鍵を無効化する。
 func (s *KeyService) DisableKey(ctx context.Context, tenantID string, generation uint) error {
+	ctx, span := tracer.Start(ctx, "KeyService.DisableKey",
+		trace.WithAttributes(
+			attribute.String("tenant.id", tenantID),
+			attribute.Int("key.generation", int(generation)),
+		),
+	)
+	defer span.End()
+
 	key, err := s.repo.FindByTenantIDAndGeneration(ctx, tenantID, generation)
 	if err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to find key for disable",
 			"operation", "disable_key",
 			"tenant_id", tenantID,
@@ -315,6 +380,7 @@ func (s *KeyService) DisableKey(ctx context.Context, tenantID string, generation
 	}
 
 	if err := s.repo.UpdateStatus(ctx, key.ID, domain.KeyStatusDisabled); err != nil {
+		span.RecordError(err)
 		slog.ErrorContext(ctx, "failed to update key status",
 			"operation", "disable_key",
 			"tenant_id", tenantID,
